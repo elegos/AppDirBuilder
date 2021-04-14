@@ -85,7 +85,4 @@ def pythonHelper(config: Config) -> Optional[Command]:
     for folder in [file for file in Path(cwd).glob('**/__pycache__') if file.is_dir()]:
         shutil.rmtree(str(folder))
 
-    pythonPath = [str(p)[len(appDir):]
-                  for p in Path(appDir).glob('**/site-packages')]
-
     return retval
