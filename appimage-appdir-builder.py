@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from functools import reduce
 import os
 import re
 import shutil
@@ -11,13 +12,13 @@ from typing import List
 
 from src.config import Config
 from src.pythonHelper import pythonHelper
-from src.utils import copyToAppDir, which
+from src.utils import copyToAppDir, patchBinary, which, writeAppRun, writeDesktopEntry
 
 cwd = os.getcwd()
 appDir = os.path.sep.join([cwd, 'AppDir'])
 shutil.rmtree(appDir, ignore_errors=True)
 
-configFilePath = os.path.sep.join([cwd, 'AppImageAppDirBuilder.ini'])
+configFilePath = os.path.sep.join([cwd, 'AppDirBuilder.ini'])
 config = Config.defaultConfig()
 if Path(configFilePath).is_file():
     config = Config.fromFile(configFilePath)
@@ -30,7 +31,6 @@ if len(sys.argv) == 1 and execCmd is None:
     print(f'{sys.argv[0]} app-to-execute arg1 argN')
     sys.exit(0)
 
-print('Now use the application to read the dependencies with `strace`')
 
 copyExec = True
 extraFilesToKeep = []
@@ -47,8 +47,8 @@ envVars.update(execCmd.env if execCmd is not None else {})
 if not Path(exec[0]).is_absolute():
     exec[0] = which(exec[0])
 
+print('Now use the application to read the dependencies with `strace`')
 straceCmdArgs = ['strace', *exec, *sys.argv[2:]]
-# straceCmdArgs = ['/usr/bin/env']
 envVars.update({
     # 'LD_DEBUG': 'libs',
     # 'QT_DEBUG_PLUGINS': '1'
@@ -61,7 +61,9 @@ completedProcess: subprocess.CompletedProcess = subprocess.run(
 filePathRegex = re.compile('"([^"]+)"')
 straceOutput = completedProcess.stderr.decode('utf-8').split('\n')
 straceOutput = [line for line in straceOutput if 'openat' in line]
-straceOutput = [filePathRegex.search(line)[1] for line in straceOutput]
+straceOutput = [
+    os.path.realpath(filePathRegex.search(line)[1]) for line in straceOutput
+]
 
 # Remove non-existing files
 straceOutput = [line for line in straceOutput if Path(line).is_file()]
@@ -118,15 +120,18 @@ copiedOtherFiles = copyToAppDir(appDir=appDir, filesList=otherFiles)
 # Remove unused files
 filesToKeep = [*filesAlreadyInAppDir, *copiedAppFiles,
                *copiedOtherFiles, *extraFilesToKeep]
-# Files that have to be ignored
+# Remove files that have to be ignored
 filesToKeep = [file for file in filesToKeep if os.path.basename(
     file) not in config.files.exclude]
+
 filesInAppDir = list(Path(appDir).glob('**/*'))
 for file in filesInAppDir:
+    strFile = str(file)
     if file.is_dir():
         continue
-    if str(file) not in filesToKeep:
-        file.unlink()
+    if strFile not in filesToKeep:
+        if not reduce(lambda x, substr: x or substr in strFile, config.files.include, False):
+            file.unlink()
 
 # Copy the executable itself
 if copyExec:
@@ -139,3 +144,28 @@ if copyExec:
         destPrefix='/app/',
         absRenamer=lambda x: os.path.basename(x)
     )
+
+# Patch the binaries
+if config.files.patchHardCodedBinaryPaths:
+    print(f'Patching "{config.runtime.execPath}" unconditionally')
+    patchBinary(config.runtime.execPath.replace('$APPDIR', appDir))
+
+# Apply icon
+iconDir = os.path.sep.join(
+    [appDir, 'usr', 'share', 'icons', 'scalable', 'apps'])
+ext = os.path.basename(config.icon.sourcePath).split('.')[-1]
+iconName = config.desktopEntry['Icon']
+if iconName is None:
+    iconName = config.runtime.reverseDNS.split('.')[-1].lower()
+iconName += f'.{ext}'
+iconPath = os.path.sep.join([iconDir, iconName])
+Path(iconDir).mkdir(exist_ok=True, parents=True)
+shutil.copy(config.icon.sourcePath, iconPath)
+shutil.copy(config.icon.sourcePath, os.path.sep.join([appDir, iconName]))
+
+# Apply desktop entry
+writeDesktopEntry(config, appDir)
+
+# Create simple AppRun script
+extraEnvVars = execCmd.extraEnvVars if execCmd is None else {}
+writeAppRun(config, appDir)

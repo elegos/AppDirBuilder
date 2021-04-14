@@ -8,6 +8,7 @@ class Command:
     args: List[str] = field(default_factory=lambda: [])
     env: Dict[str, str] = field(default_factory=lambda: {})
     copyExecutable: bool = field(default=True)
+    extraEnvVars: Dict[str, str] = field(default_factory=lambda: {})
     extraFilesToInclude: List[str] = field(default_factory=lambda: [])
 
     @property

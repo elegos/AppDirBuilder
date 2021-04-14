@@ -1,10 +1,12 @@
 import configparser
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
 
 _defaultConfigDict = {
     'Files': {
-        'exclude': ''
+        'exclude': '',
+        'include': '',
+        'patchHardCodedBinaryPaths': 'false',
     },
     'Python': {
         'version': '',
@@ -50,10 +52,22 @@ class DesktopEntry:
     def toEntry(self) -> str:
         result = ['[Desktop Entry]']
         for key, value in self._section.items():
+            if key == 'Exec' and ' ' in value:
+                value = f'sh -c "{value}"'
+            value = value.replace('$', '\\\$')
             result.append(f'{key}={value}')
 
+        return '\n'.join(result)
+
+    @property
     def fileName(self) -> str:
         return f'{self.reverseDNS}.desktop'
+
+    def __getitem__(self, name: str) -> Any:
+        if name in self._section.keys():
+            return self._section[name]
+
+        return None
 
 
 @dataclass
@@ -70,20 +84,26 @@ class Runtime:
             uuid=section['uuid'],
             reverseDNS=section['reverseDNS'],
             execPath=section['execPath'],
-            execArgs=section['execArgs'] if 'execArgs' in section else _defaultConfigDict['Runtime']['execArgs'],
-            libraryPath=section['libraryPath'] if 'libraryPath' in section else _defaultConfigDict['Runtime']['libraryPath'],
+            execArgs=section['execArgs'],
+            libraryPath=section['libraryPath'],
         )
 
 
 @dataclass
 class FilesConfig:
+    patchHardCodedBinaryPaths: bool
     exclude: List[str]
+    include: List[str]
 
     @staticmethod
     def fromSection(section: configparser.SectionProxy) -> 'FilesConfig':
         return FilesConfig(
+            patchHardCodedBinaryPaths=True if section['patchHardCodedBinaryPaths'].lower(
+            ) == 'true' else False,
             exclude=[line.strip() for line in section['exclude'].split(
-                '\n') if line.strip() != '']
+                '\n') if line.strip() != ''],
+            include=[line.strip() for line in section['include'].split(
+                '\n') if line.strip() != ''],
         )
 
 
@@ -130,6 +150,7 @@ class Config:
     @staticmethod
     def defaultConfig() -> 'Config':
         parser = configparser.ConfigParser()
+        parser.optionxform = str
         for key, values in _defaultConfigDict.items():
             parser[key] = values
 
@@ -145,6 +166,7 @@ class Config:
     @ staticmethod
     def fromFile(path: str) -> 'Config':
         parser = configparser.ConfigParser()
+        parser.optionxform = str
         for key, values in _defaultConfigDict.items():
             parser[key] = values
 

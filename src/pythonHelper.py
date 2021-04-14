@@ -46,8 +46,8 @@ def pythonHelper(config: Config) -> Optional[Command]:
         ]
         commands = [
             (['-m', 'ensurepip', '--upgrade'], None),
-            (['-m', 'pip',
-             'install', 'pipenv'], None),
+            (['-m', 'pip', 'install', '--upgrade', 'pip'], None),
+            (['-m', 'pip', 'install', 'pipenv'], None),
             (['-m', 'pipenv', '--python', '/opt/out/bin/python3',
                 'lock', '-r'], os.path.sep.join([cwd, 'requirements.txt'])),
         ]
@@ -55,12 +55,9 @@ def pythonHelper(config: Config) -> Optional[Command]:
         for command in commands:
             dockerCmd = [
                 'docker', 'run', '--rm',
-                '--volume', f'{appDir}:/opt/out',
-                '--volume', f'{cwd}:/tmpapp',
-                '--user', f'{os.geteuid()}:{os.getegid()}',
-                *env,
-                '--workdir', '/tmpapp',
-                '--entrypoint', '/opt/out/bin/python3',
+                '--volume', f'{appDir}:/opt/out', '--volume', f'{cwd}:/tmpapp',
+                '--user', f'{os.geteuid()}:{os.getegid()}', *env,
+                '--workdir', '/tmpapp', '--entrypoint', '/opt/out/bin/python3',
                 f'giacomofurlan/python-precompiled:v{config.python.version}',
                 *command[0],
             ]
@@ -74,12 +71,9 @@ def pythonHelper(config: Config) -> Optional[Command]:
     if config.python.pipInstall:
         dockerCmd = [
             'docker', 'run', '--rm',
-            '--volume', f'{appDir}:/opt/out',
-            '--volume', f'{cwd}:/tmpapp',
-            '--user', f'{os.geteuid()}:{os.getegid()}',
-            *env,
-            '--workdir', '/tmpapp',
-            '--entrypoint', '/opt/out/bin/python3',
+            '--volume', f'{appDir}:/opt/out', '--volume', f'{cwd}:/tmpapp',
+            '--user', f'{os.geteuid()}:{os.getegid()}', *env,
+            '--workdir', '/tmpapp', '--entrypoint', '/opt/out/bin/python3',
             f'giacomofurlan/python-precompiled:v{config.python.version}',
             '-m', 'pip', 'install', '-r', 'requirements.txt',
         ]
@@ -88,7 +82,10 @@ def pythonHelper(config: Config) -> Optional[Command]:
 
     # Remove pycache folders
     # (is this necessary?)
-    for folder in [file for file in Path(appDir).glob('**/__pycache__') if file.is_dir()]:
+    for folder in [file for file in Path(cwd).glob('**/__pycache__') if file.is_dir()]:
         shutil.rmtree(str(folder))
+
+    pythonPath = [str(p)[len(appDir):]
+                  for p in Path(appDir).glob('**/site-packages')]
 
     return retval
